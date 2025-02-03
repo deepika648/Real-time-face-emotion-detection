@@ -1,0 +1,36 @@
+from azure.storage.blob import BlobServiceClient
+from azure.cognitiveservices.vision.customvision.training import CustomVisionTrainingClient
+from msrest.authentication import ApiKeyCredentials
+import io
+
+# Azure Blob Storage connection details
+AZURE_BLOB_CONNECTION_STRING = " use yours"
+CONTAINER_NAME = "p2blob"
+ENDPOINT = "End point url of yours"
+TRAINING_KEY = " training key of yours"
+PROJECT_ID = " project id of yours"
+
+
+blob_service_client = BlobServiceClient.from_connection_string(AZURE_BLOB_CONNECTION_STRING)
+container_client = blob_service_client.get_container_client(CONTAINER_NAME)
+
+
+credentials = ApiKeyCredentials(in_headers={"Training-key": TRAINING_KEY})
+trainer = CustomVisionTrainingClient(ENDPOINT, credentials)
+
+
+def upload_images_directly_from_blob():
+    print("Uploading images from Azure Blob Storage to Custom Vision...")
+    
+
+    blobs = container_client.list_blobs()
+    
+    for blob in blobs:
+        blob_data = container_client.download_blob(blob.name)
+        with io.BytesIO(blob_data.readall()) as image_data:
+            trainer.create_images_from_data(PROJECT_ID, image_data)
+            print(f"Uploaded {blob.name} to Custom Vision")
+
+
+if __name__ == "__main__":
+    upload_images_directly_from_blob()
