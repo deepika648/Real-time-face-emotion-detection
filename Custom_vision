@@ -1,0 +1,50 @@
+import requests
+import json
+
+
+
+# Your Custom Vision details
+endpoint = "your url"
+project_id = "id of yours"
+published_name = "Iteration1"
+prediction_key = " your key"
+
+# Construct the URL
+url = f"{endpoint}/customvision/v3.0/Prediction/{project_id}/classify/iterations/{published_name}/image"
+
+# Headers
+headers = {
+    "Prediction-Key": prediction_key,
+    "Content-Type": "application/octet-stream"
+}
+
+# Image file
+image_path = "D:\\AIML\\SEABORN\\Scripts\\project2\\Face_Emotion_Recognition_Machine_Learning-main\\Data_classify\\test\\happy\\3_11.jpg"
+
+# Make the request
+try:
+    with open(image_path, "rb") as image_file:
+        response = requests.post(url, headers=headers, data=image_file.read())
+        #print(response)
+
+    # Check the response
+    if response.status_code == 200:
+        predictions = response.json()['predictions']
+        #print(predictions)
+        # Sort predictions by probability and get the top one
+        top_prediction = max(predictions, key=lambda x: x['probability'])
+        print("Top Prediction:")
+        print(f"Tag: {top_prediction['tagName']}")
+        print(f"Probability: {top_prediction['probability']:.2%}")
+    else:
+        print(f"Error: {response.status_code}")
+        print(response.text)
+except FileNotFoundError:
+    print(f"Error: The image file '{image_path}' was not found.")
+except requests.exceptions.RequestException as e:
+    print(f"Error making the request: {e}")
+except json.JSONDecodeError:
+    print("Error: Unable to parse the response as JSON.")
+    print("Response content:", response.text)
+except Exception as e:
+    print(f"An unexpected error occurred: {e}")
