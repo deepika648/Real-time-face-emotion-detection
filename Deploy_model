@@ -1,0 +1,295 @@
+import streamlit as st
+import requests
+import json
+import uuid
+import io
+import os
+import azure.cognitiveservices.speech as speechsdk
+
+# Azure Computer Vision details
+computer_vision_key = "your key"
+computer_vision_endpoint = "your url"
+computer_vision_url = f"{computer_vision_endpoint}vision/v3.1/analyze"
+
+# Azure Computer Vision Headers
+cv_headers_analyze = {
+    'Ocp-Apim-Subscription-Key': computer_vision_key,
+    'Content-Type': 'application/octet-stream'
+}
+
+# Custom Vision details
+custom_vision_endpoint = " your url"
+project_id = "your id"
+published_name = "Iteration1"
+prediction_key = "your key"
+
+# Custom Vision URL
+custom_vision_url = f"{custom_vision_endpoint}/customvision/v3.0/Prediction/{project_id}/classify/iterations/{published_name}/image"
+
+# Custom Vision Headers
+custom_vision_headers = {
+    "Prediction-Key": prediction_key,
+    "Content-Type": "application/octet-stream"
+}
+
+# Translator details
+translator_key = "5654182a0f4e4eea96169979b44b6164"
+translator_endpoint = "https://api.cognitive.microsofttranslator.com/"
+translator_location = "eastus"
+
+# Speech Service details
+speech_key = "65dffc8bce3947f3bdbd3490688b710a"
+speech_region = "eastus"
+
+# Available languages
+
+available_languages = {
+    "es": "Spanish", "fr": "French", "de": "German", "it": "Italian",
+    "ja": "Japanese", "ko": "Korean", "ru": "Russian", "zh-Hans": "Chinese (Simplified)"
+}
+
+# Text-to-Speech Function
+def text_to_speech(text, language='en'):
+    try:
+        speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=speech_region)
+        speech_config.speech_synthesis_language = language  # Use the selected language
+        audio_config = speechsdk.audio.AudioOutputConfig(use_default_speaker=True)
+
+        speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
+        result = speech_synthesizer.speak_text_async(text).get()
+
+        if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+            st.success("Speech synthesis completed.")
+        else:
+            st.error(f"Speech synthesis failed: {result.reason}")
+    except Exception as e:
+        st.error(f"Error in speech synthesis: {str(e)}")
+
+def add_bg_from_url():
+    st.markdown(
+         f"""
+         <style>
+         .stApp {{
+             background-image: url("https://images.unsplash.com/photo-1557683316-973673baf926?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=2029&q=80");
+             background-attachment: fixed;
+             background-size: cover;
+         }}
+         .big-font {{
+             font-size: 24px !important;
+             font-weight: bold;
+         }}
+         .medium-font {{
+             font-size: 18px !important;
+         }}
+         .styled-button {{
+             background-color: #4CAF50;
+             border: none;
+             color: white;
+             padding: 15px 32px;
+             text-align: center;
+             text-decoration: none;
+             display: inline-block;
+             font-size: 16px;
+             margin: 4px 2px;
+             cursor: pointer;
+             border-radius: 12px;
+         }}
+ 
+         .result-box {{
+             background-color: rgba(255, 255, 255, 0.7);
+             padding: 20px;
+             border-radius: 10px;
+             margin-bottom: 20px;
+         }}
+         </style>
+         """,
+         unsafe_allow_html=True
+    )
+
+# Analyze Image Function
+def analyze_image(image_data):
+    params = {'visualFeatures': 'Description,Objects,Faces,Color,Tags'}
+    try:
+        response = requests.post(computer_vision_url, headers=cv_headers_analyze, params=params, data=image_data)
+        response.raise_for_status()
+        analysis = response.json()
+        return analysis
+    except Exception as e:
+        st.error(f"Error in image analysis: {str(e)}")
+        return None
+
+# Predict Emotion Function
+def predict_emotion(image_data):
+    try:
+        response = requests.post(custom_vision_url, headers=custom_vision_headers, data=image_data)
+        response.raise_for_status()
+        predictions = response.json()['predictions']
+        top_prediction = max(predictions, key=lambda x: x['probability'])
+        return top_prediction['tagName'], top_prediction['probability']
+    except Exception as e:
+        st.error(f"Error in emotion prediction: {str(e)}")
+        return None, 0
+
+# Generate Description Function
+def generate_description(analysis):
+    description = ""
+    
+    if 'description' in analysis and analysis['description']['captions']:
+        description += f"The image appears to show {analysis['description']['captions'][0]['text']}. "
+    
+    if 'objects' in analysis:
+        objects = [obj['object'] for obj in analysis['objects']]
+        if objects:
+            description += f"I can see {', '.join(objects[:-1])}, and {objects[-1]}. " if len(objects) > 1 else f"I can see a {objects[0]}. "
+    
+    if 'faces' in analysis:
+        num_faces = len(analysis['faces'])
+        if num_faces > 0:
+            description += f"There {'are' if num_faces > 1 else 'is'} {num_faces} {'people' if num_faces > 1 else 'person'} in the image. "
+    
+    if 'color' in analysis:
+        dominant_colors = analysis['color']['dominantColors']
+        if dominant_colors:
+            description += f"The dominant colors in the image are {', '.join(dominant_colors)}. "
+        if analysis['color']['isBWImg']:
+            description += "The image appears to be in black and white. "
+    
+    if 'tags' in analysis:
+        relevant_tags = [tag['name'] for tag in analysis['tags'] if tag['confidence'] > 0.75 and tag['name'] not in description]
+        if relevant_tags:
+            description += f"Other notable elements in the image include {', '.join(relevant_tags)}."
+
+    return description
+
+# Define the get_happiness_tips function
+def get_happiness_tips():
+    return [
+        "Smile more often, it boosts your mood.",
+        "Exercise regularly to reduce stress.",
+        "Practice gratitude and focus on positive things in life.",
+        "Spend time with loved ones and build meaningful connections.",
+        "Take breaks and relax to recharge your mind."
+    ]
+
+
+# Translation Function
+def translate_text(text, target_language):
+    if target_language == 'en':
+        return text
+
+    path = '/translate'
+    constructed_url = translator_endpoint + path
+    
+    params = {
+        'api-version': '3.0',
+        'to': target_language
+    }
+    
+    headers = {
+        'Ocp-Apim-Subscription-Key': translator_key,
+        'Ocp-Apim-Subscription-Region': translator_location,
+        'Content-type': 'application/json',
+        'X-ClientTraceId': str(uuid.uuid4())
+    }
+    
+    body = [{'text': text}]
+    
+    try:
+        response = requests.post(constructed_url, params=params, headers=headers, json=body)
+        response.raise_for_status()
+        translations = response.json()
+        if translations and len(translations) > 0:
+            return translations[0]['translations'][0]['text']
+        return text
+    except Exception as e:
+        st.error(f"Error in translation: {str(e)}")
+        return text
+
+# Main function
+def main():
+    st.set_page_config(page_title="Image Analyzer", page_icon="🖼️", layout="wide")
+    add_bg_from_url()  # Add custom background and styles
+    
+    st.markdown("<h1 style='text-align: center; color: white;'>Image Analyzer</h1>", unsafe_allow_html=True)
+
+    uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+    
+    if uploaded_file is not None:
+        image = uploaded_file.read()
+        st.image(image, caption='Uploaded Image', use_column_width=True)
+        
+        if st.button('Analyze', key='analyze_button', help='Click to analyze the image'):
+            with st.spinner('Analyzing...'):
+                analysis = analyze_image(image)
+                emotion, emotion_probability = predict_emotion(image)
+                if analysis:
+                    description = generate_description(analysis)
+                    st.session_state['description'] = description
+                    
+                    st.markdown("<div class='result-box'>", unsafe_allow_html=True)
+                    st.markdown("<p class='big-font'>Image Description</p>", unsafe_allow_html=True)
+                    st.markdown(f"<p class='medium-font'>{description}</p>", unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+                    
+                    st.markdown("<div class='result-box'>", unsafe_allow_html=True)
+                    st.markdown("<p class='big-font'>Emotion Detection</p>", unsafe_allow_html=True)
+                    if emotion:
+                        st.markdown(f"<p class='medium-font'>Detected emotion: {emotion}</p>", unsafe_allow_html=True)
+                        st.markdown(f"<p class='medium-font'>Confidence score: {emotion_probability:.2%}</p>", unsafe_allow_html=True)
+                    else:
+                        st.markdown("<p class='medium-font'>No emotion detected or an error occurred during emotion detection.</p>", unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+        
+        if st.button('Tips', key='tips_button', help='Click for happiness tips'):
+            tips = get_happiness_tips()
+            st.session_state['tips'] = tips
+            st.markdown("<div class='result-box'>", unsafe_allow_html=True)
+            st.markdown("<p class='big-font'>Tips for Happiness and Success</p>", unsafe_allow_html=True)
+            for tip in tips:
+                st.markdown(f"<p class='medium-font'>• {tip}</p>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        target_language = st.selectbox("Select language for translation and speech", 
+                                       options=['en'] + list(available_languages.keys()),
+                                       format_func=lambda x: "English" if x == 'en' else available_languages[x])
+        
+        if st.button('Translate', key='translate_button', help='Click to translate'):
+            if 'description' in st.session_state and 'tips' in st.session_state:
+                with st.spinner('Translating...'):
+                    translated_description = translate_text(st.session_state['description'], target_language)
+                    translated_tips = [translate_text(tip, target_language) for tip in st.session_state['tips']]
+                    
+                    st.session_state['translated_description'] = translated_description
+                    st.session_state['translated_tips'] = translated_tips
+                    
+                    st.markdown("<div class='result-box'>", unsafe_allow_html=True)
+                    st.markdown(f"<p class='big-font'>Translated Image Description ({available_languages.get(target_language, 'English')})</p>", unsafe_allow_html=True)
+                    st.markdown(f"<p class='medium-font'>{translated_description}</p>", unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+                    
+                    st.markdown("<div class='result-box'>", unsafe_allow_html=True)
+                    st.markdown(f"<p class='big-font'>Translated Tips ({available_languages.get(target_language, 'English')})</p>", unsafe_allow_html=True)
+                    for tip in translated_tips:
+                        st.markdown(f"<p class='medium-font'>• {tip}</p>", unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+        # Add Speech Buttons side by side
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button('Speak Description', key='speak_description_button', help='Click to hear the description'):
+                if 'translated_description' in st.session_state:
+                    text_to_speech(st.session_state['translated_description'], language=target_language)
+                elif 'description' in st.session_state:
+                    text_to_speech(st.session_state['description'], language='en')
+
+        with col2:
+            if st.button('Speak Tips', key='speak_tips_button', help='Click to hear the tips'):
+                if 'translated_tips' in st.session_state:
+                    for tip in st.session_state['translated_tips']:
+                        text_to_speech(tip, language=target_language)
+                elif 'tips' in st.session_state:
+                    for tip in st.session_state['tips']:
+                        text_to_speech(tip, language='en')
+
+if __name__ == "__main__":
+    main()
