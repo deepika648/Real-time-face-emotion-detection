@@ -1,0 +1,118 @@
+import requests
+import json
+import uuid
+
+# Your Custom Vision details
+endpoint = "your url"
+project_id = "ur id"
+published_name = "Iteration1"
+prediction_key = "your key"
+
+# Construct the Custom Vision URL
+cv_url = f"{endpoint}/customvision/v3.0/Prediction/{project_id}/classify/iterations/{published_name}/image"
+
+# Custom Vision Headers
+cv_headers = {
+    "Prediction-Key": prediction_key,
+    "Content-Type": "application/octet-stream"
+}
+
+# Image file
+image_path = "D:\\AIML\\SEABORN\\Scripts\\project2\\Face_Emotion_Recognition_Machine_Learning-main\\Data_classify\\test\\happy\\3_11.jpg"
+
+# Translator details
+translator_key = "your key"
+translator_endpoint = " your url"
+translator_location = "eastus"
+
+# Available languages
+available_languages = {
+    "es": "Spanish", "fr": "French", "de": "German", "it": "Italian",
+    "ja": "Japanese", "ko": "Korean", "ru": "Russian", "zh-Hans": "Chinese (Simplified)"
+}
+
+def get_user_languages():
+    print("\nAvailable languages:")
+    for code, name in available_languages.items():
+        print(f"{code}: {name}")
+    
+    user_input = input("Enter the language code you want to translate to: ")
+    selected_language = user_input.strip()
+    
+    # Validate user input
+    if selected_language not in available_languages:
+        print("Invalid language code. Using English (no translation).")
+        return None
+    
+    return selected_language
+
+def translate_text(text, target_language):
+    if target_language is None:
+        return text
+
+    path = '/translate'
+    constructed_url = translator_endpoint + path
+    
+    params = {
+        'api-version': '3.0',
+        'to': target_language
+    }
+    
+    headers = {
+        'Ocp-Apim-Subscription-Key': translator_key,
+        'Ocp-Apim-Subscription-Region': translator_location,
+        'Content-type': 'application/json',
+        'X-ClientTraceId': str(uuid.uuid4())
+    }
+    
+    body = [{
+        'text': text
+    }]
+    
+    try:
+        response = requests.post(constructed_url, params=params, headers=headers, json=body)
+        response.raise_for_status()
+        translations = response.json()
+        if translations and len(translations) > 0:
+            return translations[0]['translations'][0]['text']
+        return text
+    except Exception as e:
+        print(f"Error in translation: {str(e)}")
+        return text
+
+# Make the Custom Vision request
+try:
+    with open(image_path, "rb") as image_file:
+        cv_response = requests.post(cv_url, headers=cv_headers, data=image_file.read())
+    
+    # Check the Custom Vision response
+    if cv_response.status_code == 200:
+        predictions = cv_response.json()['predictions']
+        # Sort predictions by probability and get the top one
+        top_prediction = max(predictions, key=lambda x: x['probability'])
+        print("\nTop Prediction:")
+        print(f"Tag: {top_prediction['tagName']}")
+        print(f"Probability: {top_prediction['probability']:.2%}")
+        
+        # Get user-selected language after prediction
+        target_language = get_user_languages()
+        
+        # Translate the prediction to selected language
+        translated_tag = translate_text(top_prediction['tagName'], target_language)
+        if target_language:
+            print(f"\nTranslation to {available_languages[target_language]}:")
+            print(f"{translated_tag}")
+        else:
+            print("\nNo translation performed.")
+    else:
+        print(f"Error in Custom Vision: {cv_response.status_code}")
+        print(cv_response.text)
+except FileNotFoundError:
+    print(f"Error: The image file '{image_path}' was not found.")
+except requests.exceptions.RequestException as e:
+    print(f"Error making the request: {e}")
+except json.JSONDecodeError:
+    print("Error: Unable to parse the response as JSON.")
+    print("Response content:", cv_response.text)
+except Exception as e:
+    print(f"An unexpected error occurred: {e}")
